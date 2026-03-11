@@ -38,5 +38,3 @@ Certifique-se de ter o **Docker** e o **Docker Compose** instalados em sua máqu
 - `igeos_postgres`: Banco de dados persistente rodando na porta 5433 (para evitar conflitos com instâncias locais).
 
 ---
-
-Desenvolvido para o desafio técnico Igeos.
