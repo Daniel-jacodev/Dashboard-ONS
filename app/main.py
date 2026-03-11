@@ -10,13 +10,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Permite que qualquer frontend acesse (ideal para desenvolvimento)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Acoplando as rotas que criamos!
 app.include_router(ons_router.router)
 
 @app.get("/")

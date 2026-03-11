@@ -6,7 +6,6 @@ from app.services import ons_service
 router = APIRouter()
 
 
-# ─── ROTAS EXISTENTES (mantidas sem alteração) ──────────────────────────────
 
 @router.get("/api/custos/termicas-mais-caras")
 def obter_usinas_mais_caras(limite: int = 10, db: Session = Depends(get_db)):
@@ -46,7 +45,6 @@ def insight_tendencia_custos(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─── NOVAS ROTAS — VISÃO ADMINISTRATIVA ─────────────────────────────────────
 
 @router.get("/api/admin/kpis")
 def obter_kpis_admin(db: Session = Depends(get_db)):
@@ -93,7 +91,6 @@ def obter_eficiencia_sistema(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─── NOVAS ROTAS — VISÃO CLIENTE ────────────────────────────────────────────
 
 @router.get("/api/client/kpis")
 def obter_kpis_cliente(db: Session = Depends(get_db)):
@@ -133,6 +130,14 @@ def rota_crescimento(db: Session = Depends(get_db)):
 def rota_matriz_pct(db: Session = Depends(get_db)):
     try:
         dados = ons_service.get_matriz_percentual_subsistema(db)
-        return {"status": "sucesso", "dados": dados} # Chave 'dados' é obrigatória
+        return {"status": "sucesso", "dados": dados}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/api/admin/variabilidade-usinas")
+def obter_variabilidade_usinas(limite: int = Query(default=6, ge=1, le=20), db: Session = Depends(get_db)):
+    try:
+        dados = ons_service.get_variabilidade_usinas(db, limite)
+        return {"status": "sucesso", "dados": dados}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -74,9 +74,8 @@ const GraficoCard = ({ titulo, children, descricao }) => (
   </div>
 );
 
-// ════════════════════════════════════════════════════════════════════════════
 // PAINEL DO CLIENTE
-// ════════════════════════════════════════════════════════════════════════════
+
 function PainelCliente({ onVoltar }) {
   const [cmo, setCmo] = useState([]);
   const [matriz, setMatriz] = useState([]);
@@ -155,17 +154,19 @@ function PainelCliente({ onVoltar }) {
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// PAINEL ADMINISTRATIVO (CORRIGIDO)
-// ════════════════════════════════════════════════════════════════════════════
+// PAINEL ADMINISTRATIVO
+
 function PainelAdmin({ onVoltar }) {
+  // Dados vindos diretamente da API
   const [kpis, setKpis] = useState(null);
   const [usinas, setUsinas] = useState([]);
   const [alertas, setAlertas] = useState([]);
-  const [desvioDados, setDesvioDados] = useState([]); // Antes realPrev
-  const [cmoHist, setCmoHist] = useState([]); // Antes não existia
+  const [desvioDados, setDesvioDados] = useState([]);
+  const [cmoGrowth, setCmoGrowth] = useState([]);
   const [matrizPct, setMatrizPct] = useState([]);
+  const [variabilidade, setVariabilidade] = useState([]);
 
+  // Controles de UI
   const [metricaDinamica, setMetricaDinamica] = useState("real");
   const [mesDinamico, setMesDinamico] = useState("Todos");
 
@@ -174,66 +175,29 @@ function PainelAdmin({ onVoltar }) {
     fetchDados("/api/admin/ranking-usinas").then(setUsinas);
     fetchDados("/api/admin/alertas").then(setAlertas);
     fetchDados("/api/admin/grafico-desvio").then(setDesvioDados);
-    fetchDados("/api/insights/tendencia-custo-marginal").then(setCmoHist);
+    fetchDados("/api/admin/cmo-growth").then(setCmoGrowth);
     fetchDados("/api/admin/matriz-percentual").then(setMatrizPct);
+    fetchDados("/api/admin/variabilidade-usinas").then(setVariabilidade);
   }, []);
 
-  // 1. Desvios (Calculado para o Gráfico e Explorador)
-  const dadosProcessados = useMemo(() => {
-    if (!Array.isArray(desvioDados)) return [];
-    return desvioDados.map((d) => ({
-      ...d,
-      desvioCalculado:
-        d.desvio ?? parseFloat(((d.real || 0) - (d.previsto || 0)).toFixed(2)),
-    }));
+  const mesesOptions = useMemo(() => {
+    const meses = (Array.isArray(desvioDados) ? desvioDados : [])
+      .map((d) => d.mes)
+      .filter(Boolean);
+    return ["Todos", ...new Set(meses)];
   }, [desvioDados]);
 
-  // 2. Filtros
-  const mesesOptions = useMemo(() => {
-    const meses = dadosProcessados.map((d) => d.mes).filter(Boolean);
-    return ["Todos", ...new Set(meses)];
-  }, [dadosProcessados]);
-
   const filtradosDinamicos = useMemo(() => {
-    return dadosProcessados.filter(
+    return (Array.isArray(desvioDados) ? desvioDados : []).filter(
       (d) => mesDinamico === "Todos" || d.mes === mesDinamico
     );
-  }, [dadosProcessados, mesDinamico]);
-
-  // 3. Variação %
-  const dadosCrescimento = useMemo(() => {
-    if (!Array.isArray(cmoHist) || cmoHist.length < 2) return [];
-    return cmoHist
-      .map((d, i) => {
-        if (i === 0) return null;
-        const ant = cmoHist[i - 1].custo_medio_anual;
-        if (!ant) return null;
-        return {
-          ano: d.ano,
-          crescimento: parseFloat(
-            (((d.custo_medio_anual - ant) / ant) * 100).toFixed(1)
-          ),
-        };
-      })
-      .filter(Boolean);
-  }, [cmoHist]);
-
-  // 4. Variabilidade
-  const dadosVariabilidade = useMemo(() => {
-    if (!Array.isArray(usinas)) return [];
-    return usinas.slice(0, 6).map((u) => ({
-      usina: u.usina,
-      min: parseFloat(
-        ((u.custo_medio || 0) - (u.variabilidade || 0)).toFixed(2)
-      ),
-      variacao: parseFloat(((u.variabilidade || 0) * 2).toFixed(2)),
-    }));
-  }, [usinas]);
+  }, [desvioDados, mesDinamico]);
 
   return (
     <div style={estilos.pagina}>
       <Cabecalho titulo="Painel Administrativo" onVoltar={onVoltar} admin />
       <div style={estilos.conteudo}>
+        {/* KPIs */}
         <div style={estilos.gridKpis}>
           <CardKpi
             label="CMO Médio"
@@ -284,9 +248,13 @@ function PainelAdmin({ onVoltar }) {
             ))}
         </div>
 
+        {/* Variabilidade */}
         <GraficoCard titulo="Variabilidade de Custo por Usina (R$/MWh)">
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={dadosVariabilidade} layout="vertical">
+            <BarChart
+              data={Array.isArray(variabilidade) ? variabilidade : []}
+              layout="vertical"
+            >
               <CartesianGrid
                 strokeDasharray="3 3"
                 stroke="#334155"
@@ -316,9 +284,10 @@ function PainelAdmin({ onVoltar }) {
           </ResponsiveContainer>
         </GraficoCard>
 
+        {/* Desvio*/}
         <GraficoCard titulo="Desvio Mensal (Economia vs Estouro)">
           <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={dadosProcessados}>
+            <BarChart data={Array.isArray(desvioDados) ? desvioDados : []}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis dataKey="mes" tick={{ fill: "#94a3b8" }} />
               <YAxis tick={{ fill: "#94a3b8" }} />
@@ -329,11 +298,11 @@ function PainelAdmin({ onVoltar }) {
                 formatter={(v) => formatarMoeda(v)}
               />
               <ReferenceLine y={0} stroke="#94a3b8" />
-              <Bar dataKey="desvioCalculado" name="Desvio">
-                {dadosProcessados.map((d, i) => (
+              <Bar dataKey="desvio" name="Desvio">
+                {(Array.isArray(desvioDados) ? desvioDados : []).map((d, i) => (
                   <Cell
                     key={i}
-                    fill={d.desvioCalculado <= 0 ? CORES.VERDE : CORES.VERMELHO}
+                    fill={d.desvio <= 0 ? CORES.VERDE : CORES.VERMELHO}
                   />
                 ))}
               </Bar>
@@ -348,9 +317,10 @@ function PainelAdmin({ onVoltar }) {
             gap: "20px",
           }}
         >
+          {/* Crescimento CMO */}
           <GraficoCard titulo="Variação Anual CMO (%)">
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={dadosCrescimento}>
+              <BarChart data={Array.isArray(cmoGrowth) ? cmoGrowth : []}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                 <XAxis dataKey="ano" tick={{ fill: "#94a3b8" }} />
                 <Tooltip
@@ -367,6 +337,7 @@ function PainelAdmin({ onVoltar }) {
             </ResponsiveContainer>
           </GraficoCard>
 
+          {/* Matriz percentual*/}
           <GraficoCard titulo="Vulnerabilidade Térmica por Subsistema (%)">
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={Array.isArray(matrizPct) ? matrizPct : []}>
@@ -397,6 +368,7 @@ function PainelAdmin({ onVoltar }) {
           </GraficoCard>
         </div>
 
+        {/* Explorador Dinâmico */}
         <GraficoCard titulo="🔍 Explorador Dinâmico de Métricas">
           <div style={estilos.barraFiltros}>
             <select
@@ -406,7 +378,7 @@ function PainelAdmin({ onVoltar }) {
             >
               <option value="real">Custo Real</option>
               <option value="previsto">Custo Previsto</option>
-              <option value="desvioCalculado">Desvio</option>
+              <option value="desvio">Desvio</option>
             </select>
             <select
               style={estilos.select}
@@ -431,11 +403,7 @@ function PainelAdmin({ onVoltar }) {
                 formatter={(v) => formatarMoeda(v)}
               />
               <Bar
-                dataKey={
-                  metricaDinamica === "desvio"
-                    ? "desvioCalculado"
-                    : metricaDinamica
-                }
+                dataKey={metricaDinamica}
                 fill={CORES.AZUL}
                 radius={[4, 4, 0, 0]}
               />
@@ -443,6 +411,7 @@ function PainelAdmin({ onVoltar }) {
           </ResponsiveContainer>
         </GraficoCard>
 
+        {/* Ranking de usinas */}
         <GraficoCard titulo="Ranking de Usinas Térmicas">
           <table style={estilos.tabela}>
             <thead>
@@ -454,16 +423,18 @@ function PainelAdmin({ onVoltar }) {
               </tr>
             </thead>
             <tbody>
-              {usinas.slice(0, 10).map((u, i) => (
-                <tr key={i}>
-                  <td style={estilos.td}>{u.usina}</td>
-                  <td style={estilos.td}>{u.subsistema}</td>
-                  <td style={estilos.td}>{formatarMoeda(u.custo_medio)}</td>
-                  <td style={estilos.td}>
-                    <BadgeCriticidade criticidade={u.criticidade} />
-                  </td>
-                </tr>
-              ))}
+              {(Array.isArray(usinas) ? usinas : [])
+                .slice(0, 10)
+                .map((u, i) => (
+                  <tr key={i}>
+                    <td style={estilos.td}>{u.usina}</td>
+                    <td style={estilos.td}>{u.subsistema}</td>
+                    <td style={estilos.td}>{formatarMoeda(u.custo_medio)}</td>
+                    <td style={estilos.td}>
+                      <BadgeCriticidade criticidade={u.criticidade} />
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </GraficoCard>
@@ -491,9 +462,6 @@ function BadgeCriticidade({ criticidade }) {
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// APP PRINCIPAL
-// ════════════════════════════════════════════════════════════════════════════
 export default function App() {
   const [tela, setTela] = useState("selecao");
   return (

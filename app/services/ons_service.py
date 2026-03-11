@@ -2,7 +2,6 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 
-# ─── FUNÇÕES EXISTENTES (mantidas sem alteração) ────────────────────────────
 
 def get_usinas_mais_caras(db: Session, limite: int):
     query = text("""
@@ -49,22 +48,22 @@ def get_tendencia_custos(db: Session):
     return [{"ano": r[0], "custo_medio_anual": float(r[1])} for r in resultado]
 
 
-# ─── NOVAS FUNÇÕES — VISÃO ADMINISTRATIVA ───────────────────────────────────
 
 def get_custo_real_vs_previsto(db: Session, ano: int):
     """
     Compara CMO real vs média histórica mês a mês para um dado ano.
     Usa a média dos anos anteriores como proxy do "previsto".
+    Retorna também o desvio já calculado (real - previsto).
     """
     query = text("""
         SELECT
             mes,
-            ROUND(AVG(custo_marginal_operacao_semanal)::numeric, 2) AS custo_real,
-            ROUND((
+            COALESCE(AVG(custo_marginal_operacao_semanal), 0) AS custo_real,
+            COALESCE((
                 SELECT AVG(custo_marginal_operacao_semanal)
                 FROM custo_marginal_semanal AS hist
                 WHERE hist.mes = cms.mes AND hist.ano < :ano
-            )::numeric, 2) AS custo_previsto
+            ), 0) AS previsto
         FROM custo_marginal_semanal AS cms
         WHERE ano = :ano
         GROUP BY mes
@@ -72,14 +71,18 @@ def get_custo_real_vs_previsto(db: Session, ano: int):
     """)
     resultado = db.execute(query, {"ano": ano}).fetchall()
     meses = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
-    return [
-        {
-            "mes": meses[r[0] - 1] if r[0] and 1 <= r[0] <= 12 else str(r[0]),
-            "real": float(r[1]) if r[1] else 0,
-            "previsto": float(r[2]) if r[2] else 0,
-        }
-        for r in resultado
-    ]
+
+    dados = []
+    for r in resultado:
+        real = float(r[1])
+        previsto = float(r[2])
+        dados.append({
+            "mes": meses[r[0] - 1] if 1 <= r[0] <= 12 else str(r[0]),
+            "real": real,
+            "previsto": previsto,
+            "desvio": round(real - previsto, 2),
+        })
+    return dados
 
 
 def get_ranking_usinas_admin(db: Session, limite: int):
@@ -121,6 +124,41 @@ def get_ranking_usinas_admin(db: Session, limite: int):
             "registros": r[4],
             "criticidade": criticidade,
             "acao": acao,
+        })
+    return dados
+
+
+def get_variabilidade_usinas(db: Session, limite: int = 6):
+    """
+    Retorna os dados de variabilidade de custo por usina já formatados
+    para o gráfico de barras empilhadas (mínimo + faixa de variação).
+
+    Antes era calculado no front-end com:
+        min  = custo_medio - variabilidade
+        faixa = variabilidade * 2
+    Agora vem pronto do back-end.
+    """
+    query = text("""
+        SELECT
+            usina,
+            ROUND(AVG(custo_variavel_unitario)::numeric, 2)    AS custo_medio,
+            ROUND(STDDEV(custo_variavel_unitario)::numeric, 2) AS variabilidade
+        FROM custo_variavel_termicas
+        WHERE custo_variavel_unitario > 0
+        GROUP BY usina
+        ORDER BY custo_medio DESC
+        LIMIT :limite;
+    """)
+    resultado = db.execute(query, {"limite": limite}).fetchall()
+
+    dados = []
+    for r in resultado:
+        custo_medio   = float(r[1])
+        variabilidade = float(r[2]) if r[2] else 0
+        dados.append({
+            "usina":      r[0],
+            "min":        round(custo_medio - variabilidade, 2),
+            "variacao":   round(variabilidade * 2, 2),           
         })
     return dados
 
@@ -179,7 +217,6 @@ def get_alertas_operacionais(db: Session):
     """
     alertas = []
 
-    # Alerta 1 — CMO crítico (> 500) no ano mais recente
     cmo_alto = db.execute(text("""
         SELECT ano, ROUND(AVG(custo_marginal_operacao_semanal)::numeric, 2) AS media
         FROM custo_marginal_semanal
@@ -193,7 +230,6 @@ def get_alertas_operacionais(db: Session):
             "msg": f"CMO médio acima de 500 R$/MWh em {r[0]} ({r[1]} R$/MWh)",
         })
 
-    # Alerta 2 — Geração térmica acima de 15% da média histórica por subsistema
     termica_alta = db.execute(text("""
         SELECT
             subsistema,
@@ -215,7 +251,6 @@ def get_alertas_operacionais(db: Session):
             "msg": f"Geração térmica em {r[0]} acima de 15% da média histórica ({int(r[1])} vs {int(r[2])} MWh)",
         })
 
-    # Alerta 3 — Subsistemas sem geração solar registrada
     sem_solar = db.execute(text("""
         SELECT subsistema
         FROM balanco_energia
@@ -264,14 +299,60 @@ def get_eficiencia_sistema(db: Session):
 
     return [
         {"metrica": "Renovável",      "valor": round(float(renovavel))},
-        {"metrica": "Confiabilidade", "valor": 91},   # estático — ajuste se tiver dado
-        {"metrica": "Atend. Demanda", "valor": 96},   # estático — ajuste se tiver dado
+        {"metrica": "Confiabilidade", "valor": 91},
+        {"metrica": "Atend. Demanda", "valor": 96},
         {"metrica": "Custo Ótimo",    "valor": custo_score},
         {"metrica": "Sustentab.",     "valor": round(float(renovavel) * 0.95)},
     ]
 
 
-# ─── NOVAS FUNÇÕES — VISÃO CLIENTE ──────────────────────────────────────────
+def get_cmo_growth(db: Session):
+    """
+    Variação percentual anual do CMO ano a ano.
+    Antes era calculado no front-end com useMemo sobre cmoHist.
+    Agora vem pronto do back-end.
+    """
+    dados_brutos = get_tendencia_custos(db)
+    growth = []
+    for i in range(1, len(dados_brutos)):
+        anterior = dados_brutos[i - 1]["custo_medio_anual"]
+        atual    = dados_brutos[i]["custo_medio_anual"]
+        variacao = round(((atual - anterior) / anterior) * 100, 1) if anterior > 0 else 0
+        growth.append({"ano": dados_brutos[i]["ano"], "crescimento": variacao})
+    return growth
+
+
+def get_matriz_percentual_subsistema(db: Session):
+    """
+    Percentual renovável vs térmica por subsistema.
+    Antes era calculado no front-end — agora vem pronto do back-end.
+    """
+    query = text("""
+        SELECT subsistema,
+               COALESCE(SUM(usina_hidraulica_verificada), 0),
+               COALESCE(SUM(geracao_usina_termica_verificada), 0),
+               COALESCE(SUM(geracao_eolica_verificada), 0),
+               COALESCE(SUM(geracao_fotovoltaica_verificada), 0)
+        FROM balanco_energia
+        GROUP BY subsistema;
+    """)
+    res = db.execute(query).fetchall()
+    dados = []
+    for r in res:
+        total     = float(r[1] + r[2] + r[3] + r[4])
+        renovavel = float(r[1] + r[3] + r[4])
+        termica   = float(r[2])
+        if total > 0:
+            dados.append({
+                "subsistema":   r[0],
+                "renovavel_pct": round((renovavel / total) * 100, 1),
+                "termica_pct":   round((termica   / total) * 100, 1),
+            })
+        else:
+            dados.append({"subsistema": r[0], "renovavel_pct": 0, "termica_pct": 0})
+    return dados
+
+
 
 def get_kpis_cliente(db: Session):
     """
@@ -330,11 +411,11 @@ def get_kpis_cliente(db: Session):
         variacao_cmo = round((float(cmo_atual) - float(cmo_anterior)) / float(cmo_anterior) * 100, 1)
 
     return {
-        "renovavel_pct":  float(renovavel)  if renovavel  else None,
-        "hidrica_pct":    float(hidrica)    if hidrica    else None,
-        "eolica_pct":     float(eolica)     if eolica     else None,
-        "solar_pct":      float(solar)      if solar      else None,
-        "cmo_atual":      float(cmo_atual)  if cmo_atual  else None,
+        "renovavel_pct":    float(renovavel)  if renovavel  else None,
+        "hidrica_pct":      float(hidrica)    if hidrica    else None,
+        "eolica_pct":       float(eolica)     if eolica     else None,
+        "solar_pct":        float(solar)      if solar      else None,
+        "cmo_atual":        float(cmo_atual)  if cmo_atual  else None,
         "variacao_cmo_pct": variacao_cmo,
     }
 
@@ -371,10 +452,10 @@ def get_destaques_cliente(db: Session):
         "crescimento_eolica_pct": cresc_eolica,
         "crescimento_solar_pct":  cresc_solar,
         "destaques": [
-            {"icon": "💧", "titulo": "Potência Hídrica",       "descricao": "A hidroeletricidade é a base limpa e confiável do sistema ONS.",                         "cor": "#0ea5e9"},
-            {"icon": "🌬️", "titulo": "Crescimento Eólico",    "descricao": f"Energia eólica cresceu {cresc_eolica}% no último ano, liderando no Nordeste.",           "cor": "#22c55e"},
-            {"icon": "☀️", "titulo": "Expansão Solar",         "descricao": f"Geração solar avança {cresc_solar}% — um dos maiores crescimentos da matriz nacional.",  "cor": "#eab308"},
-            {"icon": "📉", "titulo": "Estabilização de Custos","descricao": "CMO em trajetória de queda após o pico histórico, sinalizando estabilidade operacional.", "cor": "#a78bfa"},
+            {"icon": "💧", "titulo": "Potência Hídrica",        "descricao": "A hidroeletricidade é a base limpa e confiável do sistema ONS.",                         "cor": "#0ea5e9"},
+            {"icon": "🌬️", "titulo": "Crescimento Eólico",     "descricao": f"Energia eólica cresceu {cresc_eolica}% no último ano, liderando no Nordeste.",           "cor": "#22c55e"},
+            {"icon": "☀️", "titulo": "Expansão Solar",          "descricao": f"Geração solar avança {cresc_solar}% — um dos maiores crescimentos da matriz nacional.",  "cor": "#eab308"},
+            {"icon": "📉", "titulo": "Estabilização de Custos", "descricao": "CMO em trajetória de queda após o pico histórico, sinalizando estabilidade operacional.", "cor": "#a78bfa"},
         ],
     }
 
@@ -396,67 +477,3 @@ def get_demanda_distribuicao(db: Session):
     """)
     resultado = db.execute(query).fetchall()
     return [{"nome": r[0], "valor": float(r[1])} for r in resultado]
-def get_custo_real_vs_previsto(db: Session, ano: int):
-    query = text("""
-        SELECT 
-            mes,
-            COALESCE(AVG(custo_marginal_operacao_semanal), 0) AS custo_real,
-            COALESCE((SELECT AVG(custo_marginal_operacao_semanal) 
-                       FROM custo_marginal_semanal AS hist 
-                       WHERE hist.mes = cms.mes AND hist.ano < :ano), 0) as previsto
-        FROM custo_marginal_semanal AS cms 
-        WHERE ano = :ano
-        GROUP BY mes ORDER BY mes ASC;
-    """)
-    resultado = db.execute(query, {"ano": ano}).fetchall()
-    meses = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
-    
-    dados = []
-    for r in resultado:
-        real = float(r[1])
-        previsto = float(r[2])
-        dados.append({
-            "mes": meses[r[0]-1] if 1 <= r[0] <= 12 else str(r[0]), 
-            "real": real, 
-            "previsto": previsto, 
-            "desvio": round(real - previsto, 2)
-        })
-    return dados
-
-def get_matriz_percentual_subsistema(db: Session):
-    query = text("""
-        SELECT subsistema, 
-               COALESCE(SUM(usina_hidraulica_verificada), 0), 
-               COALESCE(SUM(geracao_usina_termica_verificada), 0),
-               COALESCE(SUM(geracao_eolica_verificada), 0), 
-               COALESCE(SUM(geracao_fotovoltaica_verificada), 0)
-        FROM balanco_energia
-        GROUP BY subsistema;
-    """)
-    res = db.execute(query).fetchall()
-    dados = []
-    for r in res:
-        # Soma total garantindo que não seja zero
-        total = float(r[1] + r[2] + r[3] + r[4])
-        if total > 0:
-            renovavel = float(r[1] + r[3] + r[4])
-            termica = float(r[2])
-            dados.append({
-                "subsistema": r[0],
-                "renovavel_pct": round((renovavel / total) * 100, 1),
-                "termica_pct": round((termica / total) * 100, 1)
-            })
-        else:
-            dados.append({"subsistema": r[0], "renovavel_pct": 0, "termica_pct": 0})
-    return dados
-
-def get_cmo_growth(db: Session):
-    # Pegamos os dados e calculamos a variação entre linhas
-    dados_brutos = get_tendencia_custos(db)
-    growth = []
-    for i in range(1, len(dados_brutos)):
-        anterior = dados_brutos[i-1]["custo_medio_anual"]
-        atual = dados_brutos[i]["custo_medio_anual"]
-        variacao = round(((atual - anterior) / anterior) * 100, 1) if anterior > 0 else 0
-        growth.append({"ano": dados_brutos[i]["ano"], "crescimento": variacao})
-    return growth
