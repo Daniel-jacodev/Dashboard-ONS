@@ -1,0 +1,43 @@
+services:
+  db:
+    image: postgres:15
+    container_name: igeos_postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpassword
+      POSTGRES_DB: ons_data
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  api:
+    build: .
+    container_name: igeos_api
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://admin:adminpassword@db:5432/ons_data
+    command: bash -c "python app/load_data.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - .:/app_code
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+
+  frontend:
+    build: ./frontend
+    container_name: igeos_frontend
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # <--- ISSO É VITAL: Cria um volume isolado para os pacotes
+    working_dir: /app
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
