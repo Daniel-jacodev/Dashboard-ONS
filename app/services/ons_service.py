@@ -396,3 +396,67 @@ def get_demanda_distribuicao(db: Session):
     """)
     resultado = db.execute(query).fetchall()
     return [{"nome": r[0], "valor": float(r[1])} for r in resultado]
+def get_custo_real_vs_previsto(db: Session, ano: int):
+    query = text("""
+        SELECT 
+            mes,
+            COALESCE(AVG(custo_marginal_operacao_semanal), 0) AS custo_real,
+            COALESCE((SELECT AVG(custo_marginal_operacao_semanal) 
+                       FROM custo_marginal_semanal AS hist 
+                       WHERE hist.mes = cms.mes AND hist.ano < :ano), 0) as previsto
+        FROM custo_marginal_semanal AS cms 
+        WHERE ano = :ano
+        GROUP BY mes ORDER BY mes ASC;
+    """)
+    resultado = db.execute(query, {"ano": ano}).fetchall()
+    meses = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
+    
+    dados = []
+    for r in resultado:
+        real = float(r[1])
+        previsto = float(r[2])
+        dados.append({
+            "mes": meses[r[0]-1] if 1 <= r[0] <= 12 else str(r[0]), 
+            "real": real, 
+            "previsto": previsto, 
+            "desvio": round(real - previsto, 2)
+        })
+    return dados
+
+def get_matriz_percentual_subsistema(db: Session):
+    query = text("""
+        SELECT subsistema, 
+               COALESCE(SUM(usina_hidraulica_verificada), 0), 
+               COALESCE(SUM(geracao_usina_termica_verificada), 0),
+               COALESCE(SUM(geracao_eolica_verificada), 0), 
+               COALESCE(SUM(geracao_fotovoltaica_verificada), 0)
+        FROM balanco_energia
+        GROUP BY subsistema;
+    """)
+    res = db.execute(query).fetchall()
+    dados = []
+    for r in res:
+        # Soma total garantindo que não seja zero
+        total = float(r[1] + r[2] + r[3] + r[4])
+        if total > 0:
+            renovavel = float(r[1] + r[3] + r[4])
+            termica = float(r[2])
+            dados.append({
+                "subsistema": r[0],
+                "renovavel_pct": round((renovavel / total) * 100, 1),
+                "termica_pct": round((termica / total) * 100, 1)
+            })
+        else:
+            dados.append({"subsistema": r[0], "renovavel_pct": 0, "termica_pct": 0})
+    return dados
+
+def get_cmo_growth(db: Session):
+    # Pegamos os dados e calculamos a variação entre linhas
+    dados_brutos = get_tendencia_custos(db)
+    growth = []
+    for i in range(1, len(dados_brutos)):
+        anterior = dados_brutos[i-1]["custo_medio_anual"]
+        atual = dados_brutos[i]["custo_medio_anual"]
+        variacao = round(((atual - anterior) / anterior) * 100, 1) if anterior > 0 else 0
+        growth.append({"ano": dados_brutos[i]["ano"], "crescimento": variacao})
+    return growth

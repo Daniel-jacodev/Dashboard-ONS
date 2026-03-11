@@ -120,3 +120,19 @@ def obter_demanda_distribuicao(db: Session = Depends(get_db)):
         return {"status": "sucesso", "dados": dados}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/api/admin/grafico-desvio")
+def rota_desvio(ano: int = 2024, db: Session = Depends(get_db)):
+    return {"dados": ons_service.get_custo_real_vs_previsto(db, ano)}
+
+@router.get("/api/admin/cmo-growth")
+def rota_crescimento(db: Session = Depends(get_db)):
+    return {"dados": ons_service.get_cmo_growth(db)}
+
+@router.get("/api/admin/matriz-percentual")
+def rota_matriz_pct(db: Session = Depends(get_db)):
+    try:
+        dados = ons_service.get_matriz_percentual_subsistema(db)
+        return {"status": "sucesso", "dados": dados} # Chave 'dados' é obrigatória
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

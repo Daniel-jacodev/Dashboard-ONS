@@ -1,11 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   AreaChart,
   Area,
   BarChart,
   Bar,
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -16,69 +14,68 @@ import {
   ReferenceLine,
 } from "recharts";
 
-// ── Endereço base da API ─────────────────────────────────────────────────────
+// ── CONFIGURAÇÕES ────────────────────────────────────────────────────────────
 const API_URL = "http://localhost:8000";
 
-// ── Função auxiliar para buscar dados da API ─────────────────────────────────
 async function fetchDados(rota) {
-  const resposta = await fetch(`${API_URL}${rota}`);
-  const json = await resposta.json();
-  return json.dados;
+  try {
+    const resposta = await fetch(`${API_URL}${rota}`);
+    if (!resposta.ok) return [];
+    const json = await resposta.json();
+    return json.dados || [];
+  } catch (err) {
+    console.error(`Erro ao buscar ${rota}:`, err);
+    return [];
+  }
 }
 
-// ── Paleta ───────────────────────────────────────────────────────────────────
-const CORES_MATRIZ = ["#3b82f6", "#f97316", "#22c55e", "#eab308"];
-const CORES_SUBS = ["#6366f1", "#0ea5e9", "#f59e0b", "#10b981"];
+const formatarMoeda = (v) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+    v || 0
+  );
 
-const estiloSelect = {
-  background: "#0f172a",
-  border: "1px solid #334155",
-  color: "#f1f5f9",
-  borderRadius: 8,
-  padding: "6px 12px",
-  fontSize: 13,
-  cursor: "pointer",
+const CORES = {
+  AZUL: "#38bdf8",
+  LARANJA: "#fb923c",
+  VERDE: "#4ade80",
+  AMARELO: "#facc15",
+  ROXO: "#a855f7",
+  VERMELHO: "#f87171",
+  TEXTO: "#ffffff",
 };
 
-// ════════════════════════════════════════════════════════════════════════════
-// TELA DE SELEÇÃO
-// ════════════════════════════════════════════════════════════════════════════
-function TelaSelecao({ onSelecionar }) {
-  return (
-    <div style={estilos.paginaCentro}>
-      <h1 style={estilos.titulo}>Dashboard ONS</h1>
-      <p style={estilos.subtitulo}>Selecione seu perfil de acesso</p>
-      <div style={estilos.gridCards}>
-        <CardSelecao
-          icone="🏢"
-          titulo="Área do Cliente"
-          descricao="Acompanhe a tendência de custos e a composição da matriz energética."
-          onClick={() => onSelecionar("cliente")}
-        />
-        <CardSelecao
-          icone="⚙️"
-          titulo="Painel Administrativo"
-          descricao="Acesso completo com filtros, custos operacionais, ranking de usinas e alertas."
-          onClick={() => onSelecionar("admin")}
-        />
-      </div>
-    </div>
-  );
-}
+// ── COMPONENTES DE UI ────────────────────────────────────────────────────────
+const Cabecalho = ({ titulo, onVoltar, admin }) => (
+  <header
+    style={{
+      ...estilos.cabecalho,
+      borderBottom: `3px solid ${admin ? CORES.LARANJA : CORES.AZUL}`,
+    }}
+  >
+    <button style={estilos.btnVoltar} onClick={onVoltar}>
+      ← Voltar
+    </button>
+    <h1 style={estilos.cabecalhoTitulo}>⚡ ONS — {titulo}</h1>
+  </header>
+);
 
-function CardSelecao({ icone, titulo, descricao, onClick }) {
-  return (
-    <div style={estilos.card} onClick={onClick}>
-      <span style={{ fontSize: 36 }}>{icone}</span>
-      <h2 style={estilos.cardTitulo}>{titulo}</h2>
-      <p style={estilos.cardDescricao}>{descricao}</p>
-      <span style={estilos.linkAcessar}>Acessar →</span>
-    </div>
-  );
-}
+const CardKpi = ({ label, valor, cor }) => (
+  <div style={{ ...estilos.cardKpi, borderTop: `4px solid ${cor}` }}>
+    <p style={estilos.kpiLabel}>{label}</p>
+    <p style={{ ...estilos.kpiValor, color: "#ffffff" }}>{valor || "—"}</p>
+  </div>
+);
+
+const GraficoCard = ({ titulo, children, descricao }) => (
+  <div style={estilos.graficoCard}>
+    <h3 style={estilos.graficoTitulo}>{titulo}</h3>
+    {descricao && <p style={estilos.graficoDescricao}>{descricao}</p>}
+    <div style={{ minHeight: "250px", width: "100%" }}>{children}</div>
+  </div>
+);
 
 // ════════════════════════════════════════════════════════════════════════════
-// PAINEL DO CLIENTE — simples, só o essencial
+// PAINEL DO CLIENTE
 // ════════════════════════════════════════════════════════════════════════════
 function PainelCliente({ onVoltar }) {
   const [cmo, setCmo] = useState([]);
@@ -91,56 +88,64 @@ function PainelCliente({ onVoltar }) {
 
   return (
     <div style={estilos.pagina}>
-      <Cabecalho titulo="Visão do Cliente" onVoltar={onVoltar} />
+      <Cabecalho titulo="Área do Cliente" onVoltar={onVoltar} />
       <div style={estilos.conteudo}>
-        <GraficoCard titulo="Tendência do Custo Marginal de Operação (R$/MWh)">
-          <ResponsiveContainer width="100%" height={260}>
-            <AreaChart data={cmo}>
+        <GraficoCard titulo="Tendência Histórica de Custos (CMO)">
+          <ResponsiveContainer width="100%" height={300}>
+            <AreaChart data={Array.isArray(cmo) ? cmo : []}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis dataKey="ano" tick={{ fill: "#94a3b8" }} />
               <YAxis tick={{ fill: "#94a3b8" }} />
-              <Tooltip contentStyle={estilos.tooltip} />
+              <Tooltip
+                contentStyle={estilos.tooltip}
+                itemStyle={{ color: "#fff" }}
+                labelStyle={{ color: "#fff" }}
+                formatter={(v) => formatarMoeda(v)}
+              />
               <Area
                 dataKey="custo_medio_anual"
-                name="CMO"
-                stroke="#3b82f6"
-                fill="#1e3a5f"
+                stroke={CORES.AZUL}
+                fill={CORES.AZUL}
+                fillOpacity={0.2}
               />
             </AreaChart>
           </ResponsiveContainer>
         </GraficoCard>
 
         <GraficoCard titulo="Matriz Energética por Subsistema">
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={matriz}>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={Array.isArray(matriz) ? matriz : []}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis dataKey="subsistema" tick={{ fill: "#94a3b8" }} />
-              <YAxis tick={{ fill: "#94a3b8" }} />
-              <Tooltip contentStyle={estilos.tooltip} />
-              <Legend wrapperStyle={{ color: "#94a3b8" }} />
+              <Tooltip
+                contentStyle={estilos.tooltip}
+                itemStyle={{ color: "#fff" }}
+                labelStyle={{ color: "#fff" }}
+              />
+              <Legend />
               <Bar
                 dataKey="hidrica"
                 name="Hídrica"
                 stackId="a"
-                fill={CORES_MATRIZ[0]}
+                fill={CORES.AZUL}
               />
               <Bar
                 dataKey="termica"
                 name="Térmica"
                 stackId="a"
-                fill={CORES_MATRIZ[1]}
+                fill={CORES.LARANJA}
               />
               <Bar
                 dataKey="eolica"
                 name="Eólica"
                 stackId="a"
-                fill={CORES_MATRIZ[2]}
+                fill={CORES.VERDE}
               />
               <Bar
                 dataKey="solar"
                 name="Solar"
                 stackId="a"
-                fill={CORES_MATRIZ[3]}
+                fill={CORES.AMARELO}
               />
             </BarChart>
           </ResponsiveContainer>
@@ -151,260 +156,137 @@ function PainelCliente({ onVoltar }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// PAINEL ADMINISTRATIVO
+// PAINEL ADMINISTRATIVO (CORRIGIDO)
 // ════════════════════════════════════════════════════════════════════════════
 function PainelAdmin({ onVoltar }) {
   const [kpis, setKpis] = useState(null);
   const [usinas, setUsinas] = useState([]);
-  const [realPrev, setRealPrev] = useState([]);
   const [alertas, setAlertas] = useState([]);
-  const [cmo, setCmo] = useState([]);
-  const [matriz, setMatriz] = useState([]);
+  const [desvioDados, setDesvioDados] = useState([]); // Antes realPrev
+  const [cmoHist, setCmoHist] = useState([]); // Antes não existia
+  const [matrizPct, setMatrizPct] = useState([]);
 
-  // Filtros
-  const [filtroSubsistema, setFiltroSubsistema] = useState("Todos");
-  const [filtroAno, setFiltroAno] = useState("Todos");
-  const [filtroUsina, setFiltroUsina] = useState("Todas");
-  const [filtroCriticidade, setFiltroCriticidade] = useState("Todas");
+  const [metricaDinamica, setMetricaDinamica] = useState("real");
+  const [mesDinamico, setMesDinamico] = useState("Todos");
 
   useEffect(() => {
     fetchDados("/api/admin/kpis").then(setKpis);
     fetchDados("/api/admin/ranking-usinas").then(setUsinas);
-    fetchDados("/api/admin/custo-real-vs-previsto").then(setRealPrev);
     fetchDados("/api/admin/alertas").then(setAlertas);
-    fetchDados("/api/insights/tendencia-custo-marginal").then(setCmo);
-    fetchDados("/api/dashboard/matriz-energetica").then(setMatriz);
+    fetchDados("/api/admin/grafico-desvio").then(setDesvioDados);
+    fetchDados("/api/insights/tendencia-custo-marginal").then(setCmoHist);
+    fetchDados("/api/admin/matriz-percentual").then(setMatrizPct);
   }, []);
 
-  // Opções dos filtros derivadas dos dados
-  const subsistemas = ["Todos", ...new Set(usinas.map((u) => u.subsistema))];
-  const anos = ["Todos", ...new Set(realPrev.map((r) => r.ano))];
-  const nomeUsinas = ["Todas", ...usinas.map((u) => u.usina)];
+  // 1. Desvios (Calculado para o Gráfico e Explorador)
+  const dadosProcessados = useMemo(() => {
+    if (!Array.isArray(desvioDados)) return [];
+    return desvioDados.map((d) => ({
+      ...d,
+      desvioCalculado:
+        d.desvio ?? parseFloat(((d.real || 0) - (d.previsto || 0)).toFixed(2)),
+    }));
+  }, [desvioDados]);
 
-  // Tabela de usinas filtrada
-  const usinasFiltradas = usinas.filter((u) => {
-    const porSub =
-      filtroSubsistema === "Todos" || u.subsistema === filtroSubsistema;
-    const porNome = filtroUsina === "Todas" || u.usina === filtroUsina;
-    const porCrit =
-      filtroCriticidade === "Todas" || u.criticidade === filtroCriticidade;
-    return porSub && porNome && porCrit;
-  });
+  // 2. Filtros
+  const mesesOptions = useMemo(() => {
+    const meses = dadosProcessados.map((d) => d.mes).filter(Boolean);
+    return ["Todos", ...new Set(meses)];
+  }, [dadosProcessados]);
 
-  // Custo real vs previsto filtrado por ano
-  const realPrevFiltrado = realPrev.filter(
-    (r) => filtroAno === "Todos" || String(r.ano) === String(filtroAno)
-  );
+  const filtradosDinamicos = useMemo(() => {
+    return dadosProcessados.filter(
+      (d) => mesDinamico === "Todos" || d.mes === mesDinamico
+    );
+  }, [dadosProcessados, mesDinamico]);
 
-  // ── Dados derivados para os novos gráficos ────────────────────────────────
+  // 3. Variação %
+  const dadosCrescimento = useMemo(() => {
+    if (!Array.isArray(cmoHist) || cmoHist.length < 2) return [];
+    return cmoHist
+      .map((d, i) => {
+        if (i === 0) return null;
+        const ant = cmoHist[i - 1].custo_medio_anual;
+        if (!ant) return null;
+        return {
+          ano: d.ano,
+          crescimento: parseFloat(
+            (((d.custo_medio_anual - ant) / ant) * 100).toFixed(1)
+          ),
+        };
+      })
+      .filter(Boolean);
+  }, [cmoHist]);
 
-  // 1. Desvio mensal (real - previsto), calculado a partir de realPrev
-  const dadosDesvio = realPrevFiltrado.map((r) => ({
-    mes: r.mes,
-    desvio: parseFloat((r.real - r.previsto).toFixed(2)),
-  }));
-
-  // 2. Variabilidade de custo por usina (min, média, max) — vem de ranking-usinas
-  const dadosVariabilidade = usinas.map((u) => ({
-    usina: u.usina,
-    custo_min: parseFloat((u.custo_medio - u.variabilidade).toFixed(2)),
-    custo_medio: u.custo_medio,
-    custo_max: parseFloat((u.custo_medio + u.variabilidade).toFixed(2)),
-    variacao: parseFloat((u.variabilidade * 2).toFixed(2)),
-  }));
-
-  // 3. Custo médio por subsistema — agrupado a partir de ranking-usinas
-  const custoSubsistema = Object.values(
-    usinas.reduce((acc, u) => {
-      if (!acc[u.subsistema])
-        acc[u.subsistema] = { subsistema: u.subsistema, total: 0, count: 0 };
-      acc[u.subsistema].total += u.custo_medio;
-      acc[u.subsistema].count += 1;
-      return acc;
-    }, {})
-  ).map((s) => ({
-    subsistema: s.subsistema,
-    custo_medio: parseFloat((s.total / s.count).toFixed(2)),
-  }));
-
-  // 4. Participação renovável por subsistema — calculada a partir de matriz-energetica
-  const renovavelSubsistema = matriz.map((m) => {
-    const total =
-      (m.hidrica || 0) + (m.termica || 0) + (m.eolica || 0) + (m.solar || 0);
-    const renovavel = (m.hidrica || 0) + (m.eolica || 0) + (m.solar || 0);
-    return {
-      subsistema: m.subsistema,
-      renovavel_pct:
-        total > 0 ? parseFloat(((renovavel / total) * 100).toFixed(1)) : 0,
-      termica_pct:
-        total > 0 ? parseFloat(((m.termica / total) * 100).toFixed(1)) : 0,
-    };
-  });
-
-  // 5. Crescimento anual do CMO (variação % ano a ano) — calculado a partir de cmo
-  const dadosCrescimento = cmo
-    .map((d, i) => {
-      if (i === 0) return { ano: d.ano, crescimento: 0 };
-      const anterior = cmo[i - 1].custo_medio_anual;
-      const variacao = parseFloat(
-        (((d.custo_medio_anual - anterior) / anterior) * 100).toFixed(1)
-      );
-      return { ano: d.ano, crescimento: variacao };
-    })
-    .slice(1); // remove o primeiro (sem referência anterior)
+  // 4. Variabilidade
+  const dadosVariabilidade = useMemo(() => {
+    if (!Array.isArray(usinas)) return [];
+    return usinas.slice(0, 6).map((u) => ({
+      usina: u.usina,
+      min: parseFloat(
+        ((u.custo_medio || 0) - (u.variabilidade || 0)).toFixed(2)
+      ),
+      variacao: parseFloat(((u.variabilidade || 0) * 2).toFixed(2)),
+    }));
+  }, [usinas]);
 
   return (
     <div style={estilos.pagina}>
       <Cabecalho titulo="Painel Administrativo" onVoltar={onVoltar} admin />
       <div style={estilos.conteudo}>
-        {/* KPIs */}
         <div style={estilos.gridKpis}>
           <CardKpi
             label="CMO Médio"
-            valor={kpis?.cmo_atual}
-            unidade="R$/MWh"
-            cor="#d97706"
+            valor={kpis?.cmo_atual ? formatarMoeda(kpis.cmo_atual) : "—"}
+            cor={CORES.LARANJA}
           />
           <CardKpi
-            label="Variação CMO"
-            valor={kpis?.variacao_cmo_pct}
-            unidade="%"
-            cor="#6366f1"
+            label="Variação"
+            valor={
+              kpis?.variacao_cmo_pct != null
+                ? `${kpis.variacao_cmo_pct}%`
+                : "0%"
+            }
+            cor={CORES.ROXO}
           />
           <CardKpi
             label="Renovável"
-            valor={kpis?.renovavel_pct}
-            unidade="%"
-            cor="#22c55e"
+            valor={kpis?.renovavel_pct ? `${kpis.renovavel_pct}%` : "—"}
+            cor={CORES.VERDE}
           />
           <CardKpi
             label="Subsistemas"
-            valor={kpis?.total_subsistemas}
-            unidade=""
-            cor="#0ea5e9"
+            valor={kpis?.total_subsistemas || "—"}
+            cor={CORES.AZUL}
           />
         </div>
 
         {/* Alertas */}
-        <GraficoCard titulo="Alertas Operacionais">
-          {alertas.map((alerta, i) => (
-            <AlertaItem key={i} alerta={alerta} />
-          ))}
-        </GraficoCard>
-
-        {/* ── GRÁFICO 1 — Custo real vs previsto com filtro de ano ── */}
-        <GraficoCard titulo="Custo Real vs Previsto (R$/MWh)">
-          <div style={estilos.barraFiltros}>
-            <label style={estilos.labelFiltro}>Ano:</label>
-            <select
-              style={estiloSelect}
-              value={filtroAno}
-              onChange={(e) => setFiltroAno(e.target.value)}
-            >
-              {anos.map((a) => (
-                <option key={a}>{a}</option>
-              ))}
-            </select>
-          </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={realPrevFiltrado}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="mes" tick={{ fill: "#94a3b8" }} />
-              <YAxis tick={{ fill: "#94a3b8" }} />
-              <Tooltip contentStyle={estilos.tooltip} />
-              <Legend wrapperStyle={{ color: "#94a3b8" }} />
-              <Bar dataKey="real" name="Real" fill="#fbbf24" />
-              <Bar dataKey="previsto" name="Previsto" fill="#6366f1" />
-            </BarChart>
-          </ResponsiveContainer>
-        </GraficoCard>
-
-        {/* ── GRÁFICO 2 — Desvio mensal real vs previsto ── */}
-        <GraficoCard
-          titulo="Desvio Orçamentário Mensal (R$/MWh)"
-          descricao="Diferença entre custo real e previsto — barras verdes indicam economia, vermelhas indicam estouro."
-        >
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={dadosDesvio}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="mes" tick={{ fill: "#94a3b8" }} />
-              <YAxis tick={{ fill: "#94a3b8" }} />
-              <Tooltip
-                contentStyle={estilos.tooltip}
-                formatter={(v) => [`${v} R$/MWh`, "Desvio"]}
-              />
-              <ReferenceLine y={0} stroke="#475569" strokeDasharray="4 4" />
-              <Bar dataKey="desvio" name="Desvio" radius={[4, 4, 0, 0]}>
-                {dadosDesvio.map((d, i) => (
-                  <Cell key={i} fill={d.desvio <= 0 ? "#22c55e" : "#ef4444"} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </GraficoCard>
-
-        {/* ── GRÁFICO 3 — Variação anual do CMO ── */}
-        <GraficoCard
-          titulo="Variação Anual do CMO (%)"
-          descricao="Crescimento ou queda percentual do custo marginal a cada ano — identifica anos críticos."
-        >
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={dadosCrescimento}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="ano" tick={{ fill: "#94a3b8" }} />
-              <YAxis tick={{ fill: "#94a3b8" }} unit="%" />
-              <Tooltip
-                contentStyle={estilos.tooltip}
-                formatter={(v) => [`${v}%`, "Variação"]}
-              />
-              <ReferenceLine y={0} stroke="#475569" strokeDasharray="4 4" />
-              <Bar
-                dataKey="crescimento"
-                name="Variação %"
-                radius={[4, 4, 0, 0]}
+        <div style={{ marginBottom: 25 }}>
+          {Array.isArray(alertas) &&
+            alertas.map((a, i) => (
+              <div
+                key={i}
+                style={{
+                  background: a.tipo === "critical" ? "#451a1a" : "#1e293b",
+                  borderLeft: `4px solid ${
+                    a.tipo === "critical" ? CORES.VERMELHO : CORES.AZUL
+                  }`,
+                  padding: 12,
+                  borderRadius: 6,
+                  marginBottom: 8,
+                  fontSize: 13,
+                  color: "#fff",
+                }}
               >
-                {dadosCrescimento.map((d, i) => (
-                  <Cell
-                    key={i}
-                    fill={d.crescimento <= 0 ? "#22c55e" : "#ef4444"}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </GraficoCard>
+                {a.msg}
+              </div>
+            ))}
+        </div>
 
-        {/* ── GRÁFICO 4 — Custo médio por subsistema ── */}
-        <GraficoCard
-          titulo="Custo Médio das Usinas por Subsistema (R$/MWh)"
-          descricao="Média dos custos operacionais das usinas térmicas agrupadas por região — apoia decisões de despacho."
-        >
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={custoSubsistema} barSize={40}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="subsistema" tick={{ fill: "#94a3b8" }} />
-              <YAxis tick={{ fill: "#94a3b8" }} />
-              <Tooltip contentStyle={estilos.tooltip} />
-              <Bar
-                dataKey="custo_medio"
-                name="Custo médio (R$/MWh)"
-                radius={[6, 6, 0, 0]}
-              >
-                {custoSubsistema.map((_, i) => (
-                  <Cell key={i} fill={CORES_SUBS[i % CORES_SUBS.length]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </GraficoCard>
-
-        {/* ── GRÁFICO 5 — Variabilidade de custo por usina ── */}
-        <GraficoCard
-          titulo="Variabilidade de Custo por Usina (R$/MWh)"
-          descricao="Amplitude entre o custo mínimo e máximo registrado — usinas com alta variação representam risco operacional."
-        >
+        <GraficoCard titulo="Variabilidade de Custo por Usina (R$/MWh)">
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={dadosVariabilidade} layout="vertical" barSize={14}>
+            <BarChart data={dadosVariabilidade} layout="vertical">
               <CartesianGrid
                 strokeDasharray="3 3"
                 stroke="#334155"
@@ -412,152 +294,176 @@ function PainelAdmin({ onVoltar }) {
               />
               <XAxis type="number" tick={{ fill: "#94a3b8" }} />
               <YAxis
-                type="category"
                 dataKey="usina"
+                type="category"
                 tick={{ fill: "#94a3b8" }}
-                width={110}
+                width={100}
               />
-              <Tooltip contentStyle={estilos.tooltip} />
-              <Legend wrapperStyle={{ color: "#94a3b8" }} />
-              <Bar
-                dataKey="custo_min"
-                name="Mínimo"
-                stackId="a"
-                fill="#22c55e"
+              <Tooltip
+                contentStyle={estilos.tooltip}
+                itemStyle={{ color: "#fff" }}
+                labelStyle={{ color: "#fff" }}
               />
+              <Bar dataKey="min" name="Mínimo" stackId="a" fill={CORES.VERDE} />
               <Bar
                 dataKey="variacao"
-                name="Variação"
+                name="Variabilidade"
                 stackId="a"
-                fill="#ef4444"
+                fill={CORES.VERMELHO}
                 radius={[0, 4, 4, 0]}
               />
             </BarChart>
           </ResponsiveContainer>
         </GraficoCard>
 
-        {/* ── GRÁFICO 6 — Participação renovável por subsistema ── */}
-        <GraficoCard
-          titulo="Participação Renovável vs Térmica por Subsistema (%)"
-          descricao="Quanto de cada subsistema depende de fontes renováveis — essencial para avaliar vulnerabilidade energética."
-        >
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={renovavelSubsistema} barSize={40}>
+        <GraficoCard titulo="Desvio Mensal (Economia vs Estouro)">
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={dadosProcessados}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="subsistema" tick={{ fill: "#94a3b8" }} />
-              <YAxis tick={{ fill: "#94a3b8" }} unit="%" domain={[0, 100]} />
+              <XAxis dataKey="mes" tick={{ fill: "#94a3b8" }} />
+              <YAxis tick={{ fill: "#94a3b8" }} />
               <Tooltip
                 contentStyle={estilos.tooltip}
-                formatter={(v) => [`${v}%`]}
+                itemStyle={{ color: "#fff" }}
+                labelStyle={{ color: "#fff" }}
+                formatter={(v) => formatarMoeda(v)}
               />
-              <Legend wrapperStyle={{ color: "#94a3b8" }} />
-              <Bar
-                dataKey="renovavel_pct"
-                name="Renovável"
-                stackId="a"
-                fill="#22c55e"
+              <ReferenceLine y={0} stroke="#94a3b8" />
+              <Bar dataKey="desvioCalculado" name="Desvio">
+                {dadosProcessados.map((d, i) => (
+                  <Cell
+                    key={i}
+                    fill={d.desvioCalculado <= 0 ? CORES.VERDE : CORES.VERMELHO}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </GraficoCard>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(450px, 1fr))",
+            gap: "20px",
+          }}
+        >
+          <GraficoCard titulo="Variação Anual CMO (%)">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={dadosCrescimento}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="ano" tick={{ fill: "#94a3b8" }} />
+                <Tooltip
+                  contentStyle={estilos.tooltip}
+                  itemStyle={{ color: "#fff" }}
+                  labelStyle={{ color: "#fff" }}
+                />
+                <Bar
+                  dataKey="crescimento"
+                  fill={CORES.AZUL}
+                  radius={[4, 4, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </GraficoCard>
+
+          <GraficoCard titulo="Vulnerabilidade Térmica por Subsistema (%)">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={Array.isArray(matrizPct) ? matrizPct : []}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="subsistema" tick={{ fill: "#94a3b8" }} />
+                <YAxis unit="%" tick={{ fill: "#94a3b8" }} />
+                <Tooltip
+                  contentStyle={estilos.tooltip}
+                  itemStyle={{ color: "#fff" }}
+                  labelStyle={{ color: "#fff" }}
+                />
+                <Legend />
+                <Bar
+                  dataKey="renovavel_pct"
+                  name="Renovável"
+                  stackId="a"
+                  fill={CORES.VERDE}
+                />
+                <Bar
+                  dataKey="termica_pct"
+                  name="Térmica"
+                  stackId="a"
+                  fill={CORES.LARANJA}
+                  radius={[4, 4, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </GraficoCard>
+        </div>
+
+        <GraficoCard titulo="🔍 Explorador Dinâmico de Métricas">
+          <div style={estilos.barraFiltros}>
+            <select
+              style={estilos.select}
+              value={metricaDinamica}
+              onChange={(e) => setMetricaDinamica(e.target.value)}
+            >
+              <option value="real">Custo Real</option>
+              <option value="previsto">Custo Previsto</option>
+              <option value="desvioCalculado">Desvio</option>
+            </select>
+            <select
+              style={estilos.select}
+              value={mesDinamico}
+              onChange={(e) => setMesDinamico(e.target.value)}
+            >
+              {mesesOptions.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={filtradosDinamicos}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis dataKey="mes" tick={{ fill: "#94a3b8" }} />
+              <Tooltip
+                contentStyle={estilos.tooltip}
+                itemStyle={{ color: "#fff" }}
+                labelStyle={{ color: "#fff" }}
+                formatter={(v) => formatarMoeda(v)}
               />
               <Bar
-                dataKey="termica_pct"
-                name="Térmica"
-                stackId="a"
-                fill="#f97316"
+                dataKey={
+                  metricaDinamica === "desvio"
+                    ? "desvioCalculado"
+                    : metricaDinamica
+                }
+                fill={CORES.AZUL}
                 radius={[4, 4, 0, 0]}
               />
             </BarChart>
           </ResponsiveContainer>
         </GraficoCard>
 
-        {/* ── TABELA — Ranking com filtros ── */}
-        <GraficoCard titulo="Ranking de Usinas por Custo Operacional">
-          <div style={estilos.barraFiltros}>
-            <label style={estilos.labelFiltro}>Subsistema:</label>
-            <select
-              style={estiloSelect}
-              value={filtroSubsistema}
-              onChange={(e) => setFiltroSubsistema(e.target.value)}
-            >
-              {subsistemas.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
-
-            <label style={estilos.labelFiltro}>Usina:</label>
-            <select
-              style={estiloSelect}
-              value={filtroUsina}
-              onChange={(e) => setFiltroUsina(e.target.value)}
-            >
-              {nomeUsinas.map((u) => (
-                <option key={u}>{u}</option>
-              ))}
-            </select>
-
-            <label style={estilos.labelFiltro}>Criticidade:</label>
-            <select
-              style={estiloSelect}
-              value={filtroCriticidade}
-              onChange={(e) => setFiltroCriticidade(e.target.value)}
-            >
-              {["Todas", "Alta", "Média", "Baixa"].map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-
+        <GraficoCard titulo="Ranking de Usinas Térmicas">
           <table style={estilos.tabela}>
             <thead>
               <tr>
-                {[
-                  "#",
-                  "Usina",
-                  "Subsistema",
-                  "Custo (R$/MWh)",
-                  "Criticidade",
-                  "Ação",
-                ].map((col) => (
-                  <th key={col} style={estilos.th}>
-                    {col}
-                  </th>
-                ))}
+                <th style={estilos.th}>Usina</th>
+                <th style={estilos.th}>Sub</th>
+                <th style={estilos.th}>Custo</th>
+                <th style={estilos.th}>Criticidade</th>
               </tr>
             </thead>
             <tbody>
-              {usinasFiltradas.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={6}
-                    style={{
-                      ...estilos.td,
-                      textAlign: "center",
-                      color: "#64748b",
-                    }}
-                  >
-                    Nenhuma usina encontrada para os filtros selecionados.
+              {usinas.slice(0, 10).map((u, i) => (
+                <tr key={i}>
+                  <td style={estilos.td}>{u.usina}</td>
+                  <td style={estilos.td}>{u.subsistema}</td>
+                  <td style={estilos.td}>{formatarMoeda(u.custo_medio)}</td>
+                  <td style={estilos.td}>
+                    <BadgeCriticidade criticidade={u.criticidade} />
                   </td>
                 </tr>
-              ) : (
-                usinasFiltradas.map((u) => (
-                  <tr
-                    key={u.rank}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.background = "#263244")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.background = "")
-                    }
-                  >
-                    <td style={estilos.td}>{u.rank}</td>
-                    <td style={estilos.td}>{u.usina}</td>
-                    <td style={estilos.td}>{u.subsistema}</td>
-                    <td style={estilos.td}>{u.custo_medio}</td>
-                    <td style={estilos.td}>
-                      <BadgeCriticidade criticidade={u.criticidade} />
-                    </td>
-                    <td style={estilos.td}>{u.acao}</td>
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
         </GraficoCard>
@@ -566,104 +472,21 @@ function PainelAdmin({ onVoltar }) {
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// COMPONENTES REUTILIZÁVEIS
-// ════════════════════════════════════════════════════════════════════════════
-function Cabecalho({ titulo, onVoltar, admin }) {
-  return (
-    <header
-      style={{
-        ...estilos.cabecalho,
-        borderBottom: `3px solid ${admin ? "#d97706" : "#3b82f6"}`,
-      }}
-    >
-      <button style={estilos.btnVoltar} onClick={onVoltar}>
-        ← Voltar
-      </button>
-      <h1 style={estilos.cabecalhoTitulo}>⚡ ONS — {titulo}</h1>
-    </header>
-  );
-}
-
-function CardKpi({ label, valor, unidade, cor }) {
-  return (
-    <div style={{ ...estilos.cardKpi, borderTop: `3px solid ${cor}` }}>
-      <p style={estilos.kpiLabel}>{label}</p>
-      <p style={estilos.kpiValor}>
-        {valor ?? "—"} <span style={estilos.kpiUnidade}>{unidade}</span>
-      </p>
-    </div>
-  );
-}
-
-function GraficoCard({ titulo, descricao, children }) {
-  return (
-    <div style={estilos.graficoCard}>
-      <h3 style={estilos.graficoTitulo}>{titulo}</h3>
-      {descricao && <p style={estilos.graficoDescricao}>{descricao}</p>}
-      {children}
-    </div>
-  );
-}
-
-function AlertaItem({ alerta }) {
-  const estilosPorTipo = {
-    critical: {
-      fundo: "#2d1515",
-      borda: "#ef4444",
-      cor: "#f87171",
-      label: "Crítico",
-    },
-    warning: {
-      fundo: "#2d2008",
-      borda: "#f59e0b",
-      cor: "#fbbf24",
-      label: "Atenção",
-    },
-    info: { fundo: "#0f1f3d", borda: "#3b82f6", cor: "#60a5fa", label: "Info" },
-  };
-  const s = estilosPorTipo[alerta.tipo] ?? estilosPorTipo.info;
-  return (
-    <div
-      style={{
-        background: s.fundo,
-        borderLeft: `4px solid ${s.borda}`,
-        borderRadius: 6,
-        padding: "10px 14px",
-        marginBottom: 8,
-        display: "flex",
-        gap: 12,
-      }}
-    >
-      <span
-        style={{ color: s.cor, fontWeight: 700, fontSize: 12, minWidth: 48 }}
-      >
-        {s.label}
-      </span>
-      <span style={{ fontSize: 13, color: "#cbd5e1" }}>{alerta.msg}</span>
-    </div>
-  );
-}
-
 function BadgeCriticidade({ criticidade }) {
   const cores = {
-    Alta: { fundo: "#2d1515", texto: "#f87171" },
-    Média: { fundo: "#2d1e08", texto: "#fb923c" },
-    Baixa: { fundo: "#0d2918", texto: "#4ade80" },
+    Alta: CORES.VERMELHO,
+    Média: CORES.LARANJA,
+    Baixa: CORES.VERDE,
   };
-  const c = cores[criticidade] ?? cores.Baixa;
   return (
     <span
       style={{
-        background: c.fundo,
-        color: c.texto,
-        fontWeight: 700,
-        fontSize: 11,
-        padding: "3px 10px",
-        borderRadius: 100,
+        color: cores[criticidade] || CORES.VERDE,
+        fontWeight: "bold",
+        fontSize: 12,
       }}
     >
-      {criticidade}
+      ● {criticidade}
     </span>
   );
 }
@@ -676,9 +499,9 @@ export default function App() {
   return (
     <div
       style={{
-        fontFamily: "system-ui, sans-serif",
-        background: "#0f172a",
         minHeight: "100vh",
+        background: "#0f172a",
+        fontFamily: "sans-serif",
       }}
     >
       {tela === "selecao" && <TelaSelecao onSelecionar={setTela} />}
@@ -690,9 +513,26 @@ export default function App() {
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// ESTILOS
-// ════════════════════════════════════════════════════════════════════════════
+function TelaSelecao({ onSelecionar }) {
+  return (
+    <div style={estilos.paginaCentro}>
+      <h1 style={estilos.titulo}>Dashboard ONS</h1>
+      <div style={estilos.gridCards}>
+        <div style={estilos.card} onClick={() => onSelecionar("cliente")}>
+          <span style={{ fontSize: 36 }}>🏢</span>
+          <h2 style={estilos.cardTitulo}>Cliente</h2>
+          <span style={estilos.linkAcessar}>Entrar →</span>
+        </div>
+        <div style={estilos.card} onClick={() => onSelecionar("admin")}>
+          <span style={{ fontSize: 36 }}>⚙️</span>
+          <h2 style={estilos.cardTitulo}>Admin</h2>
+          <span style={estilos.linkAcessar}>Entrar →</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const estilos = {
   paginaCentro: {
     minHeight: "100vh",
@@ -700,139 +540,88 @@ const estilos = {
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
     background: "#0f172a",
+    textAlign: "center",
   },
-  pagina: { minHeight: "100vh", background: "#0f172a" },
-  conteudo: { maxWidth: 1100, margin: "0 auto", padding: "28px 24px" },
-
-  titulo: {
-    fontSize: 32,
-    fontWeight: 800,
-    color: "#f1f5f9",
-    margin: "0 0 8px",
-  },
-  subtitulo: { fontSize: 16, color: "#64748b", margin: "0 0 40px" },
-  gridCards: {
-    display: "flex",
-    gap: 20,
-    flexWrap: "wrap",
-    justifyContent: "center",
-  },
+  pagina: { minHeight: "100vh", background: "#0f172a", color: "#f1f5f9" },
+  conteudo: { maxWidth: 1200, margin: "0 auto", padding: "20px" },
+  titulo: { fontSize: 42, color: "#f1f5f9", marginBottom: 30 },
+  gridCards: { display: "flex", gap: 20 },
   card: {
-    width: 280,
     background: "#1e293b",
-    border: "1px solid #334155",
-    borderRadius: 12,
-    padding: 28,
+    padding: 30,
+    borderRadius: 15,
     cursor: "pointer",
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
+    width: 220,
+    border: "1px solid #334155",
   },
-  cardTitulo: { fontSize: 18, fontWeight: 700, color: "#f1f5f9", margin: 0 },
-  cardDescricao: { fontSize: 13, color: "#94a3b8", lineHeight: 1.6, margin: 0 },
+  cardTitulo: { color: "#f1f5f9", marginTop: 15, fontSize: 18 },
   linkAcessar: {
-    color: "#60a5fa",
-    fontWeight: 700,
-    fontSize: 13,
-    marginTop: 8,
+    color: CORES.AZUL,
+    display: "block",
+    marginTop: 15,
+    fontWeight: "bold",
   },
-
   cabecalho: {
     background: "#1e293b",
-    borderBottom: "1px solid #334155",
-    padding: "14px 24px",
+    padding: "15px 30px",
     display: "flex",
     alignItems: "center",
-    gap: 16,
-  },
-  cabecalhoTitulo: {
-    fontSize: 18,
-    fontWeight: 700,
-    color: "#f1f5f9",
-    margin: 0,
+    gap: 20,
   },
   btnVoltar: {
     background: "none",
     border: "1px solid #334155",
     color: "#94a3b8",
+    padding: "8px 15px",
     borderRadius: 8,
-    padding: "5px 14px",
     cursor: "pointer",
-    fontSize: 13,
   },
-
+  cabecalhoTitulo: { fontSize: 20, margin: 0 },
   gridKpis: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: 14,
-    marginBottom: 24,
+    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gap: 20,
+    marginBottom: 30,
   },
-  cardKpi: {
-    background: "#1e293b",
-    border: "1px solid #334155",
-    borderRadius: 10,
-    padding: "16px 18px",
-  },
-  kpiLabel: {
-    fontSize: 11,
-    color: "#64748b",
-    fontWeight: 700,
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-    margin: "0 0 8px",
-  },
-  kpiValor: { fontSize: 22, fontWeight: 700, color: "#f1f5f9", margin: 0 },
-  kpiUnidade: { fontSize: 13, color: "#64748b", fontWeight: 400 },
-
+  cardKpi: { background: "#1e293b", padding: 20, borderRadius: 10 },
+  kpiLabel: { color: "#94a3b8", fontSize: 11, textTransform: "uppercase" },
+  kpiValor: { fontSize: 24, fontWeight: "bold", margin: 0 },
   graficoCard: {
     background: "#1e293b",
+    padding: 25,
+    borderRadius: 12,
     border: "1px solid #334155",
-    borderRadius: 10,
-    padding: "20px 22px",
-    marginBottom: 20,
+    marginBottom: 25,
   },
-  graficoTitulo: {
-    fontSize: 14,
-    fontWeight: 700,
-    color: "#e2e8f0",
-    margin: "0 0 4px",
-  },
-  graficoDescricao: {
-    fontSize: 12,
-    color: "#64748b",
-    margin: "0 0 16px",
-    lineHeight: 1.5,
-  },
+  graficoTitulo: { fontSize: 15, color: "#cbd5e1", marginBottom: 5 },
+  graficoDescricao: { fontSize: 12, color: "#64748b", marginBottom: 15 },
   tooltip: {
     background: "#0f172a",
     border: "1px solid #334155",
+    borderRadius: 8,
+    padding: "10px",
+  },
+  select: {
+    background: "#0f172a",
     color: "#f1f5f9",
+    border: "1px solid #334155",
+    padding: "10px",
+    borderRadius: 8,
   },
-
-  barraFiltros: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    flexWrap: "wrap",
-    marginBottom: 16,
-  },
-  labelFiltro: { fontSize: 12, color: "#64748b", fontWeight: 600 },
-
-  tabela: { width: "100%", borderCollapse: "collapse", fontSize: 14 },
+  barraFiltros: { display: "flex", gap: 15, marginBottom: 20 },
+  tabela: { width: "100%", borderCollapse: "collapse" },
   th: {
     textAlign: "left",
-    padding: "8px 12px",
     color: "#64748b",
-    fontWeight: 600,
+    padding: 12,
+    borderBottom: "1px solid #334155",
     fontSize: 11,
-    textTransform: "uppercase",
-    borderBottom: "2px solid #334155",
   },
   td: {
-    padding: "11px 12px",
-    color: "#cbd5e1",
+    padding: 12,
     borderBottom: "1px solid #263244",
+    fontSize: 14,
+    color: "#cbd5e1",
   },
 };
